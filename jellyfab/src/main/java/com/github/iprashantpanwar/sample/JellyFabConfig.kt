@@ -51,6 +51,16 @@ data class JellyFabConfig(
     val shadowOpacity: Float = 0.55f,
 
     /**
+     * Opacity of the full-screen scrim overlay when the menu is open.
+     */
+    val scrimAlpha: Float = 0.55f,
+
+    /**
+     * Duration (ms) for the scrim fade-in/out animation.
+     */
+    val scrimAnimationDuration: Int = 250,
+
+    /**
      * Multiplier controlling how far the shadow softens/spreads when bulges animate.
      */
     val shadowBlurFactor: Float = 0.2f,

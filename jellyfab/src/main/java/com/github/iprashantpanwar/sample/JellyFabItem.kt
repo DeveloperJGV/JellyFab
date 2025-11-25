@@ -14,5 +14,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 @Stable
 data class JellyFabItem(
     val icon: ImageVector,
+    val contentDescription: String? = null,
     val onClick: () -> Unit = {},
 )

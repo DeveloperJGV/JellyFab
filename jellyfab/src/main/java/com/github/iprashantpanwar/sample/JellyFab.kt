@@ -105,7 +105,7 @@ fun JellyFab(
     secondLayerFabColor: Color = Color(0xFF6BA5FF),
     primaryItems: List<JellyFabItem>,
     secondaryItems: List<JellyFabItem> = emptyList(),
-    showScrim: Boolean = true,   // makes sense here
+    showScrim: Boolean = true,
     config: JellyFabConfig = JellyFabConfig(),
 ) {
     val scope = rememberCoroutineScope()
@@ -168,33 +168,25 @@ fun JellyFab(
 
     val centerCorrect = (miniFabSize - fabSize) / 2f
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-    ) {
-        // SCRIM OVERLAY (fade + tap-to-collapse)
-        val scrimVisible = state.expanded || state.secondaryExpanded
-        val scrimAlpha by animateFloatAsState(
-            targetValue = if (scrimVisible) 1f else 0f,
-            animationSpec = tween(250)
-        )
+    // Precompute positions of primary ring on arc
+    val primaryAngles = remember(primaryItems.size) { evenArcAngles(count = primaryItems.size) }
+    val primaryPositions = remember { MutableList(primaryItems.size) { Offset.Zero } }
 
-        if (showScrim && scrimAlpha > 0.01f) { // avoid capturing clicks at alpha ~= 0
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .graphicsLayer { alpha = scrimAlpha }
-                    .background(Color.White.copy(alpha = 0.55f))
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() }
-                    ) {
-                        scope.launch {
-                            state.secondaryExpanded = false
-                            delay(secondaryCollapseDuration(secondaryItems.size, config))
-                            state.expanded = false
-                        }
+    Box(
+        modifier = modifier.fillMaxSize()
+    ) {
+        if (showScrim) {
+            JellyFabScrim(
+                expanded = state.expanded,
+                secondaryExpanded = state.secondaryExpanded,
+                config = config,
+                onClose = {
+                    scope.launch {
+                        state.secondaryExpanded = false
+                        delay(secondaryCollapseDuration(secondaryItems.size, config))
+                        state.expanded = false
                     }
+                }
             )
         }
 
@@ -205,161 +197,269 @@ fun JellyFab(
             contentAlignment = Alignment.BottomEnd
         ) {
 
-            // Precompute positions of primary ring on arc
-            val primaryAngles =
-                remember(primaryItems.size) { evenArcAngles(count = primaryItems.size) }
-            val primaryPositions = remember { MutableList(primaryItems.size) { Offset.Zero } }
-
             // ---------- PRIMARY LAYER ----------
-            primaryItems.forEachIndexed { index, item ->
-                val angleRad = Math.toRadians(primaryAngles[index])
-                val p = primaryProgress[index].value
-                val dx = (cos(angleRad) * config.layerDistance.value * p)
-                val dy = (sin(angleRad) * config.layerDistance.value * p)
-                primaryPositions[index] = Offset(dx.toFloat(), dy.toFloat())
-
-                FloatingActionButton(
-                    onClick = {
-                        when {
-                            // toggle secondary ring from the first mini FAB
-                            index == 0 && secondaryItems.isNotEmpty() ->
-                                state.secondaryExpanded = !state.secondaryExpanded
-
-                            // clicking another primary mini while secondary is open collapses everything
-                            state.secondaryExpanded -> {
-                                scope.launch {
-                                    state.secondaryExpanded = false
-                                    delay(secondaryCollapseDuration(secondaryItems.size, config))
-                                    state.expanded = false
-                                }
-                            }
-
-                            else -> state.expanded = false
-                        }
-                    },
-                    modifier = Modifier
-                        .offset(dx.dp + centerCorrect, dy.dp + centerCorrect)
-                        .graphicsLayer {
-                            scaleX = 0.8f + 0.2f * p
-                            scaleY = 0.8f + 0.2f * p
-                        }
-                        .size(miniFabSize),
-                    shape = CircleShape,
-                    containerColor = if (index == 0 && secondaryItems.isNotEmpty()) secondLayerFabColor else fabColor,
-                    elevation = FloatingActionButtonDefaults.elevation(0.dp)
-                ) {
-                    val icon: ImageVector =
-                        if (index == 0 && secondaryItems.isNotEmpty())
-                            animatedSecondaryToggleIcon(
-                                secondaryExpanded = state.secondaryExpanded,
-                                delayOnCollapse = secondaryCollapseDuration(
-                                    secondaryItems.size,
-                                    config
-                                )
-                            )
-                        else item.icon
-
-                    Icon(icon, null, tint = Color.White)
+            JellyFabPrimaryLayer(
+                primaryItems = primaryItems,
+                primaryProgress = primaryProgress,
+                primaryAngles = primaryAngles,
+                primaryPositions = primaryPositions,
+                config = config,
+                miniFabSize = miniFabSize,
+                centerCorrect = centerCorrect,
+                fabColor = fabColor,
+                secondLayerFabColor = secondLayerFabColor,
+                secondaryItems = secondaryItems,
+                state = state,
+                onClose = {
+                    scope.launch {
+                        state.secondaryExpanded = false
+                        delay(secondaryCollapseDuration(secondaryItems.size, config))
+                        state.expanded = false
+                    }
                 }
-            }
+            )
 
             // ---------- SECONDARY LAYER (CHAIN / ARC ABOVE PRIMARY) ----------
-            if (state.secondaryExpanded || secondaryProgress.any { it.value > 0f }) {
-                val radius = config.layerDistance.value * config.secondaryLayerSpacingMultiplier
-                val anchor = primaryPositions.firstOrNull() ?: Offset.Zero
-                var prevOrigin = anchor
-                var prevTarget = anchor
+            JellyFabSecondaryLayer(
+                secondaryItems = secondaryItems,
+                secondaryProgress = secondaryProgress,
+                state = state,
+                primaryPositions = primaryPositions,
+                config = config,
+                miniFabSize = miniFabSize,
+                centerCorrect = centerCorrect,
+                secondLayerFabColor = secondLayerFabColor,
+                onClose = {
+                    scope.launch {
+                        state.secondaryExpanded = false
+                        delay(secondaryCollapseDuration(secondaryItems.size, config))
+                        state.expanded = false
+                    }
+                }
+            )
 
-                secondaryItems.forEachIndexed { i, item ->
-                    val p = secondaryProgress[i].value
-                    val angle = 90 + (90.0 / (secondaryItems.size - 1).coerceAtLeast(1)) * i
-                    val target = arcOffset(angle, radius)
-
-                    val prevProg = if (i == 0) 1f else secondaryProgress[i - 1].value
-                    val prevCurrent = lerpOffset(prevOrigin, prevTarget, prevProg)
-                    val current = lerpOffset(prevCurrent, target, p)
-
-                    prevOrigin = prevCurrent
-                    prevTarget = target
-
-                    FloatingActionButton(
-                        onClick = {
+            // ---------- MAIN JELLY BLOB FAB ----------
+            JellyFabMainButton(
+                fabSize = fabSize,
+                fabColor = fabColor,
+                bulges = bulges,
+                config = config,
+                primaryAngles = primaryAngles,
+                state = state,
+                secondaryItems = secondaryItems,
+                onToggle = {
+                    when {
+                        !state.expanded -> state.expanded = true
+                        state.secondaryExpanded -> {
                             scope.launch {
                                 state.secondaryExpanded = false
                                 delay(secondaryCollapseDuration(secondaryItems.size, config))
                                 state.expanded = false
-                                item.onClick()
                             }
-                        },
-                        modifier = Modifier
-                            .offset(current.x.dp + centerCorrect, current.y.dp + centerCorrect)
-                            .graphicsLayer {
-                                alpha = p
-                                scaleX = 0.8f + 0.2f * p
-                                scaleY = 0.8f + 0.2f * p
-                            }
-                            .size(miniFabSize),
-                        shape = CircleShape,
-                        containerColor = secondLayerFabColor,
-                        elevation = FloatingActionButtonDefaults.elevation(0.dp)
-                    ) {
-                        Icon(item.icon, null, tint = Color.White)
+                        }
+                        else -> state.expanded = false
                     }
                 }
-            }
+            )
+        }
+    }
+}
 
-            // ---------- MAIN JELLY BLOB FAB ----------
-            Box(modifier = Modifier.size(fabSize), contentAlignment = Alignment.Center) {
+@Composable
+private fun JellyFabScrim(
+    expanded: Boolean,
+    secondaryExpanded: Boolean,
+    config: JellyFabConfig,
+    onClose: () -> Unit
+) {
+    val scrimVisible = expanded || secondaryExpanded
+    val scrimAlpha by animateFloatAsState(
+        targetValue = if (scrimVisible) config.scrimAlpha else 0f,
+        animationSpec = tween(config.scrimAnimationDuration)
+    )
 
-                JellyBlob(
-                    size = fabSize,
-                    color = fabColor,
-                    bulges = bulges.map { it.value },
-                    shadowOpacity = config.shadowOpacity,
-                    shadowBlurFactor = config.shadowBlurFactor,
-                    bulgeAngles = primaryAngles,
-                    bounceFactor = config.bounceFactor
+    if (scrimAlpha > 0.01f) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = scrimAlpha }
+                .background(Color.White) // Alpha is handled by graphicsLayer
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                    onClick = onClose
                 )
+        )
+    }
+}
 
-                val rotation by animateFloatAsState(if (state.expanded) 0f else 45f, tween(260))
+@Composable
+private fun JellyFabPrimaryLayer(
+    primaryItems: List<JellyFabItem>,
+    primaryProgress: List<Animatable<Float, *>>,
+    primaryAngles: List<Double>,
+    primaryPositions: MutableList<Offset>,
+    config: JellyFabConfig,
+    miniFabSize: Dp,
+    centerCorrect: Dp,
+    fabColor: Color,
+    secondLayerFabColor: Color,
+    secondaryItems: List<JellyFabItem>,
+    state: JellyFabState,
+    onClose: () -> Unit
+) {
+    primaryItems.forEachIndexed { index, item ->
+        val angleRad = Math.toRadians(primaryAngles[index])
+        val p = primaryProgress[index].value
+        val dx = (cos(angleRad) * config.layerDistance.value * p)
+        val dy = (sin(angleRad) * config.layerDistance.value * p)
+        primaryPositions[index] = Offset(dx.toFloat(), dy.toFloat())
 
-                Box(
-                    Modifier
-                        .size(fabSize)
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() }
-                        ) {
-                            when {
-                                !state.expanded -> state.expanded = true
-                                state.secondaryExpanded -> {
-                                    scope.launch {
-                                        state.secondaryExpanded = false
-                                        delay(
-                                            secondaryCollapseDuration(
-                                                secondaryItems.size,
-                                                config
-                                            )
-                                        )
-                                        state.expanded = false
-                                    }
-                                }
+        FloatingActionButton(
+            onClick = {
+                when {
+                    index == 0 && secondaryItems.isNotEmpty() ->
+                        state.secondaryExpanded = !state.secondaryExpanded
 
-                                else -> state.expanded = false
-                            }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        CloseIcon,
-                        null,
-                        tint = Color.White,
-                        modifier = Modifier
-                            .size(32.dp)
-                            .rotate(rotation)
-                    )
+                    state.secondaryExpanded -> onClose()
+
+                    else -> {
+                        state.expanded = false
+                        item.onClick()
+                    }
                 }
+            },
+            modifier = Modifier
+                .offset(dx.dp + centerCorrect, dy.dp + centerCorrect)
+                .graphicsLayer {
+                    scaleX = 0.8f + 0.2f * p
+                    scaleY = 0.8f + 0.2f * p
+                }
+                .size(miniFabSize),
+            shape = CircleShape,
+            containerColor = if (index == 0 && secondaryItems.isNotEmpty()) secondLayerFabColor else fabColor,
+            elevation = FloatingActionButtonDefaults.elevation(0.dp)
+        ) {
+            val icon: ImageVector =
+                if (index == 0 && secondaryItems.isNotEmpty())
+                    animatedSecondaryToggleIcon(
+                        secondaryExpanded = state.secondaryExpanded,
+                        delayOnCollapse = secondaryCollapseDuration(
+                            secondaryItems.size,
+                            config
+                        )
+                    )
+                else item.icon
+
+            Icon(
+                imageVector = icon,
+                contentDescription = item.contentDescription,
+                tint = Color.White
+            )
+        }
+    }
+}
+
+@Composable
+private fun JellyFabSecondaryLayer(
+    secondaryItems: List<JellyFabItem>,
+    secondaryProgress: List<Animatable<Float, *>>,
+    state: JellyFabState,
+    primaryPositions: List<Offset>,
+    config: JellyFabConfig,
+    miniFabSize: Dp,
+    centerCorrect: Dp,
+    secondLayerFabColor: Color,
+    onClose: () -> Unit
+) {
+    if (state.secondaryExpanded || secondaryProgress.any { it.value > 0f }) {
+        val radius = config.layerDistance.value * config.secondaryLayerSpacingMultiplier
+        val anchor = primaryPositions.firstOrNull() ?: Offset.Zero
+        var prevOrigin = anchor
+        var prevTarget = anchor
+
+        secondaryItems.forEachIndexed { i, item ->
+            val p = secondaryProgress[i].value
+            val angle = 90 + (90.0 / (secondaryItems.size - 1).coerceAtLeast(1)) * i
+            val target = calculateArcOffset(angle, radius)
+
+            val prevProg = if (i == 0) 1f else secondaryProgress[i - 1].value
+            val prevCurrent = calculateLerpOffset(prevOrigin, prevTarget, prevProg)
+            val current = calculateLerpOffset(prevCurrent, target, p)
+
+            prevOrigin = prevCurrent
+            prevTarget = target
+
+            FloatingActionButton(
+                onClick = {
+                    onClose()
+                    item.onClick()
+                },
+                modifier = Modifier
+                    .offset(current.x.dp + centerCorrect, current.y.dp + centerCorrect)
+                    .graphicsLayer {
+                        alpha = p
+                        scaleX = 0.8f + 0.2f * p
+                        scaleY = 0.8f + 0.2f * p
+                    }
+                    .size(miniFabSize),
+                shape = CircleShape,
+                containerColor = secondLayerFabColor,
+                elevation = FloatingActionButtonDefaults.elevation(0.dp)
+            ) {
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = item.contentDescription,
+                    tint = Color.White
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun JellyFabMainButton(
+    fabSize: Dp,
+    fabColor: Color,
+    bulges: List<Animatable<Float, *>>,
+    config: JellyFabConfig,
+    primaryAngles: List<Double>,
+    state: JellyFabState,
+    secondaryItems: List<JellyFabItem>,
+    onToggle: () -> Unit
+) {
+    Box(modifier = Modifier.size(fabSize), contentAlignment = Alignment.Center) {
+
+        JellyBlob(
+            size = fabSize,
+            color = fabColor,
+            bulges = bulges.map { it.value },
+            shadowOpacity = config.shadowOpacity,
+            shadowBlurFactor = config.shadowBlurFactor,
+            bulgeAngles = primaryAngles,
+            bounceFactor = config.bounceFactor
+        )
+
+        val rotation by animateFloatAsState(if (state.expanded) 0f else 45f, tween(260))
+
+        Box(
+            Modifier
+                .size(fabSize)
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                    onClick = onToggle
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = CloseIcon,
+                contentDescription = if (state.expanded) "Close menu" else "Open menu",
+                tint = Color.White,
+                modifier = Modifier
+                    .size(32.dp)
+                    .rotate(rotation)
+            )
         }
     }
 }
@@ -384,4 +484,21 @@ internal fun animatedSecondaryToggleIcon(
     }
 
     return icon
+}
+
+// --- Helper Functions ---
+
+private fun calculateArcOffset(angleDeg: Double, radius: Float): Offset {
+    val rad = Math.toRadians(angleDeg)
+    return Offset(
+        (cos(rad) * radius).toFloat(),
+        (sin(rad) * radius).toFloat()
+    )
+}
+
+private fun calculateLerpOffset(start: Offset, stop: Offset, fraction: Float): Offset {
+    return Offset(
+        x = start.x + (stop.x - start.x) * fraction,
+        y = start.y + (stop.y - start.y) * fraction
+    )
 }
