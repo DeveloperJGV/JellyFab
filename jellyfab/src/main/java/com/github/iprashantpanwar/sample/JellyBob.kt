@@ -17,7 +17,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -126,4 +128,18 @@ fun JellyBlob(
 
         drawPath(path, color)
     }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun JellyBlobPreview() {
+    JellyBlob(
+        size = 72.dp,
+        color = Color(0xFFFF7F86),
+        bulges = listOf(0.5f, 0.2f, 0f),
+        shadowOpacity = 0.5f,
+        shadowBlurFactor = 0.2f,
+        bulgeAngles = listOf(270.0, 225.0, 180.0),
+        bounceFactor = 0.2f
+    )
 }

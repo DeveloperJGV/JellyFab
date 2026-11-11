@@ -27,6 +27,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
@@ -39,6 +44,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
@@ -64,12 +72,8 @@ import kotlin.math.sin
  * @param miniFabSize Diameter of the small mini-FABs used in primary
  * and secondary layers. Usually `48.dp`.
  *
- * @param fabColor Background color of:
- *  - The main FAB
- *  - Primary layer FABs (except the first one if secondary layer is enabled)
- *
- * @param secondLayerFabColor Background color used for FABs in the secondary layer,
- * including the first primary FAB when secondaryItems is not empty.
+ * @param colors [JellyFabColors] that will be used to resolve the colors used for this FAB.
+ * See [JellyFabDefaults.colors].
  *
  * @param primaryItems The list of actions forming the first fan-out arc
  * around the main FAB. Each [JellyFabItem] provides an icon + click action.
@@ -101,14 +105,14 @@ fun JellyFab(
     state: JellyFabState = rememberJellyFabState(),
     fabSize: Dp = 72.dp,
     miniFabSize: Dp = 48.dp,
-    fabColor: Color = Color(0xFFFF7F86),
-    secondLayerFabColor: Color = Color(0xFF6BA5FF),
+    colors: JellyFabColors = JellyFabDefaults.colors(),
     primaryItems: List<JellyFabItem>,
     secondaryItems: List<JellyFabItem> = emptyList(),
     showScrim: Boolean = true,
     config: JellyFabConfig = JellyFabConfig(),
 ) {
     val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
 
     // Core animation holders (one Animatable per FAB)
     val primaryProgress = remember { primaryItems.map { Animatable(0f) } }
@@ -175,12 +179,15 @@ fun JellyFab(
     Box(
         modifier = modifier.fillMaxSize()
     ) {
+        // SCRIM OVERLAY (fade + tap-to-collapse)
         if (showScrim) {
             JellyFabScrim(
                 expanded = state.expanded,
                 secondaryExpanded = state.secondaryExpanded,
                 config = config,
+                scrimColor = colors.scrimColor,
                 onClose = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
                         state.secondaryExpanded = false
                         delay(secondaryCollapseDuration(secondaryItems.size, config))
@@ -206,11 +213,11 @@ fun JellyFab(
                 config = config,
                 miniFabSize = miniFabSize,
                 centerCorrect = centerCorrect,
-                fabColor = fabColor,
-                secondLayerFabColor = secondLayerFabColor,
+                colors = colors,
                 secondaryItems = secondaryItems,
                 state = state,
                 onClose = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
                         state.secondaryExpanded = false
                         delay(secondaryCollapseDuration(secondaryItems.size, config))
@@ -228,8 +235,9 @@ fun JellyFab(
                 config = config,
                 miniFabSize = miniFabSize,
                 centerCorrect = centerCorrect,
-                secondLayerFabColor = secondLayerFabColor,
+                colors = colors,
                 onClose = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
                         state.secondaryExpanded = false
                         delay(secondaryCollapseDuration(secondaryItems.size, config))
@@ -241,13 +249,14 @@ fun JellyFab(
             // ---------- MAIN JELLY BLOB FAB ----------
             JellyFabMainButton(
                 fabSize = fabSize,
-                fabColor = fabColor,
+                colors = colors,
                 bulges = bulges,
                 config = config,
                 primaryAngles = primaryAngles,
                 state = state,
                 secondaryItems = secondaryItems,
                 onToggle = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     when {
                         !state.expanded -> state.expanded = true
                         state.secondaryExpanded -> {
@@ -270,6 +279,7 @@ private fun JellyFabScrim(
     expanded: Boolean,
     secondaryExpanded: Boolean,
     config: JellyFabConfig,
+    scrimColor: Color,
     onClose: () -> Unit
 ) {
     val scrimVisible = expanded || secondaryExpanded
@@ -283,7 +293,7 @@ private fun JellyFabScrim(
             Modifier
                 .fillMaxSize()
                 .graphicsLayer { alpha = scrimAlpha }
-                .background(Color.White) // Alpha is handled by graphicsLayer
+                .background(scrimColor) // Alpha is handled by graphicsLayer
                 .clickable(
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },
@@ -302,12 +312,12 @@ private fun JellyFabPrimaryLayer(
     config: JellyFabConfig,
     miniFabSize: Dp,
     centerCorrect: Dp,
-    fabColor: Color,
-    secondLayerFabColor: Color,
+    colors: JellyFabColors,
     secondaryItems: List<JellyFabItem>,
     state: JellyFabState,
     onClose: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
     primaryItems.forEachIndexed { index, item ->
         val angleRad = Math.toRadians(primaryAngles[index])
         val p = primaryProgress[index].value
@@ -317,10 +327,13 @@ private fun JellyFabPrimaryLayer(
 
         FloatingActionButton(
             onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 when {
+                    // toggle secondary ring from the first mini FAB
                     index == 0 && secondaryItems.isNotEmpty() ->
                         state.secondaryExpanded = !state.secondaryExpanded
 
+                    // clicking another primary mini while secondary is open collapses everything
                     state.secondaryExpanded -> onClose()
 
                     else -> {
@@ -337,7 +350,7 @@ private fun JellyFabPrimaryLayer(
                 }
                 .size(miniFabSize),
             shape = CircleShape,
-            containerColor = if (index == 0 && secondaryItems.isNotEmpty()) secondLayerFabColor else fabColor,
+            containerColor = if (index == 0 && secondaryItems.isNotEmpty()) colors.secondaryContainerColor else colors.containerColor,
             elevation = FloatingActionButtonDefaults.elevation(0.dp)
         ) {
             val icon: ImageVector =
@@ -354,7 +367,7 @@ private fun JellyFabPrimaryLayer(
             Icon(
                 imageVector = icon,
                 contentDescription = item.contentDescription,
-                tint = Color.White
+                tint = colors.contentColor
             )
         }
     }
@@ -369,9 +382,10 @@ private fun JellyFabSecondaryLayer(
     config: JellyFabConfig,
     miniFabSize: Dp,
     centerCorrect: Dp,
-    secondLayerFabColor: Color,
+    colors: JellyFabColors,
     onClose: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
     if (state.secondaryExpanded || secondaryProgress.any { it.value > 0f }) {
         val radius = config.layerDistance.value * config.secondaryLayerSpacingMultiplier
         val anchor = primaryPositions.firstOrNull() ?: Offset.Zero
@@ -392,6 +406,7 @@ private fun JellyFabSecondaryLayer(
 
             FloatingActionButton(
                 onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onClose()
                     item.onClick()
                 },
@@ -404,13 +419,13 @@ private fun JellyFabSecondaryLayer(
                     }
                     .size(miniFabSize),
                 shape = CircleShape,
-                containerColor = secondLayerFabColor,
+                containerColor = colors.secondaryContainerColor,
                 elevation = FloatingActionButtonDefaults.elevation(0.dp)
             ) {
                 Icon(
                     imageVector = item.icon,
                     contentDescription = item.contentDescription,
-                    tint = Color.White
+                    tint = colors.contentColor
                 )
             }
         }
@@ -420,7 +435,7 @@ private fun JellyFabSecondaryLayer(
 @Composable
 private fun JellyFabMainButton(
     fabSize: Dp,
-    fabColor: Color,
+    colors: JellyFabColors,
     bulges: List<Animatable<Float, *>>,
     config: JellyFabConfig,
     primaryAngles: List<Double>,
@@ -432,7 +447,7 @@ private fun JellyFabMainButton(
 
         JellyBlob(
             size = fabSize,
-            color = fabColor,
+            color = colors.containerColor,
             bulges = bulges.map { it.value },
             shadowOpacity = config.shadowOpacity,
             shadowBlurFactor = config.shadowBlurFactor,
@@ -455,7 +470,7 @@ private fun JellyFabMainButton(
             Icon(
                 imageVector = CloseIcon,
                 contentDescription = if (state.expanded) "Close menu" else "Open menu",
-                tint = Color.White,
+                tint = colors.contentColor,
                 modifier = Modifier
                     .size(32.dp)
                     .rotate(rotation)
@@ -501,4 +516,119 @@ private fun calculateLerpOffset(start: Offset, stop: Offset, fraction: Float): O
         x = start.x + (stop.x - start.x) * fraction,
         y = start.y + (stop.y - start.y) * fraction
     )
+}
+
+// --- Previews ---
+
+@Preview(showBackground = true, name = "Collapsed")
+@Composable
+fun JellyFabPreviewCollapsed() {
+    val state = rememberJellyFabState(initialExpanded = false)
+    Box(Modifier.fillMaxSize()) {
+        JellyFab(
+            state = state,
+            primaryItems = listOf(
+                JellyFabItem(Icons.Default.Add, "Add"),
+                JellyFabItem(Icons.Default.Edit, "Edit"),
+                JellyFabItem(Icons.Default.Favorite, "Favorite")
+            )
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Expanded")
+@Composable
+fun JellyFabPreviewExpanded() {
+    val state = rememberJellyFabState(initialExpanded = true)
+    Box(Modifier.fillMaxSize()) {
+        JellyFab(
+            state = state,
+            primaryItems = listOf(
+                JellyFabItem(Icons.Default.Add, "Add"),
+                JellyFabItem(Icons.Default.Edit, "Edit"),
+                JellyFabItem(Icons.Default.Favorite, "Favorite")
+            )
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "With Secondary")
+@Composable
+fun JellyFabPreviewWithSecondary() {
+    val state = rememberJellyFabState(initialExpanded = true, initialSecondaryExpanded = true)
+    Box(Modifier.fillMaxSize()) {
+        JellyFab(
+            state = state,
+            primaryItems = listOf(
+                JellyFabItem(Icons.Default.Add, "Add"),
+                JellyFabItem(Icons.Default.Edit, "Edit"),
+                JellyFabItem(Icons.Default.Favorite, "Favorite")
+            ),
+            secondaryItems = listOf(
+                JellyFabItem(Icons.Default.Share, "Share"),
+                JellyFabItem(Icons.Default.Favorite, "Like")
+            )
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Main Button")
+@Composable
+fun JellyFabMainButtonPreview() {
+    val state = rememberJellyFabState()
+    val bulges = remember { listOf(Animatable(0f), Animatable(0f), Animatable(0f)) }
+    Box(Modifier.padding(16.dp)) {
+        JellyFabMainButton(
+            fabSize = 72.dp,
+            colors = JellyFabDefaults.colors(),
+            bulges = bulges,
+            config = JellyFabConfig(),
+            primaryAngles = listOf(270.0, 225.0, 180.0),
+            state = state,
+            secondaryItems = emptyList(),
+            onToggle = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Primary Layer")
+@Composable
+fun JellyFabPrimaryLayerPreview() {
+    val state = rememberJellyFabState(initialExpanded = true)
+    val items = listOf(
+        JellyFabItem(Icons.Default.Add, "Add"),
+        JellyFabItem(Icons.Default.Edit, "Edit")
+    )
+    val progress = remember { items.map { Animatable(1f) } }
+    val positions = remember { MutableList(items.size) { Offset.Zero } }
+    
+    Box(Modifier.size(200.dp), contentAlignment = Alignment.BottomEnd) {
+        JellyFabPrimaryLayer(
+            primaryItems = items,
+            primaryProgress = progress,
+            primaryAngles = listOf(270.0, 180.0),
+            primaryPositions = positions,
+            config = JellyFabConfig(),
+            miniFabSize = 48.dp,
+            centerCorrect = (-12).dp, // (48 - 72) / 2
+            colors = JellyFabDefaults.colors(),
+            secondaryItems = emptyList(),
+            state = state,
+            onClose = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, name = "Scrim")
+@Composable
+fun JellyFabScrimPreview() {
+    Box(Modifier.size(200.dp).background(Color.Gray)) {
+        JellyFabScrim(
+            expanded = true,
+            secondaryExpanded = false,
+            config = JellyFabConfig(),
+            scrimColor = Color.White.copy(alpha = 0.55f),
+            onClose = {}
+        )
+    }
 }

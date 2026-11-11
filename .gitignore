@@ -13,3 +13,10 @@
 .externalNativeBuild
 .cxx
 local.properties
+/.idea/deploymentTargetSelector.xml
+/.idea/deviceManager.xml
+/.idea/.name
+/.idea/copilot.*
+/.idea/markdown.xml
+/.idea/material_theme_project_new.xml
+/.idea/vcs.xml
